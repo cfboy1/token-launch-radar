@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Launch Radar — pre-token protocols ranked by implied launch value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<a class="skip" href="#sheet">Skip to the sheet</a>
+<div id="sheet" class="sheet" tabindex="-1">
+  <header class="top">
+    <div class="kicker">Working sheet · desk: launch radar · model <span id="mver"></span></div>
+    <div class="no" id="meta"></div>
+  </header>
+  <div class="titlebar">
+    <h1>Token Launch Radar</h1>
+    <span class="sub">pre-token protocols, ranked by implied launch value</span>
+    <span class="punch">→ red = our markup · black = the data</span>
+  </div>
+  <main id="view" aria-live="polite"></main>
+  <footer class="foot">
+    <p class="meth" id="meth"></p>
+    <div class="legend">
+      ▬ implied value · log to leader<br>
+      | $50M floor · <span class="tg wl">WL</span> watchlist · <span class="tg ex">FIND</span> ours
+    </div>
+  </footer>
+</div>
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

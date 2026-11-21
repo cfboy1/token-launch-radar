@@ -235,7 +235,7 @@ function leadHtml(s) {
     <div class="plan">
       <h2>Farm plan — before a token</h2>
       <div class="vline"><b>${r.verdict.label}</b>${esc(r.verdict.text)}</div>
-      ${r.plan.slice(0, 3).map((st, i) => `<div class="step"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx">${esc(st.text)}</span><span><span class="chip cost">${esc(st.cost)}</span> <span class="chip">${esc(st.time)}</span></span></div>`).join('')}
+      ${r.plan.slice(0, 3).map((st, i) => `<div class="step"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx"><b class="sk">${esc(st.kind)}</b> ${esc(st.text)}</span><span><span class="chip cost">${esc(st.cost)}</span> <span class="chip">${esc(st.time)}</span></span></div>`).join('')}
     </div>
   </section>`;
 }
@@ -307,7 +307,7 @@ function detailHtml(r) {
   return `
   <div class="crumb">
     <a href="#">← back to the board</a>
-    <div class="pos">row <b>${boardNo} of ${R.board_size}</b> on the sheet · rank <b>${r.rank}</b> by expected value · ${r.on_watchlist ? 'on the watchlist' : 'our find, below the floor'} · ${vdChip(r.verdict.label)}</div>
+    <div class="pos">row <b>${boardNo} of ${R.board_size}</b> on the sheet · rank <b>${r.rank}</b> · ${r.rank_range[0]}–${r.rank_range[1]} across bootstrap refits · ${r.on_watchlist ? 'on the watchlist' : 'our find, below the floor'} · ${vdChip(r.verdict.label)}</div>
   </div>
   <div class="dhead">
     <div>
@@ -326,6 +326,7 @@ function detailHtml(r) {
     <section class="panel" aria-label="the value model">
       <h2>The value model — how ${money(r.implied_value_usd)} is built</h2>
       <div class="bd">
+        <div class="recomp">✓ recomputed in this browser: ${calib.multiplier} × ${money(r.launch_value_usd)} × ${Math.round(r.token_odds * 100)}% = ${money(Math.round(calib.multiplier * r.launch_value_usd * r.token_odds))} — equals the board's printed value</div>
         <div class="formula">launch value = TVL<sup>${f.b_tvl}</sup> × e<sup>${f.b_mom}·momentum</sup> × e<sup>${f.b_age}·age</sup>, × fitted odds ${Math.round(r.token_odds * 100)}% — every coefficient fitted on the snapshot's ${f.n} cleanest tokened peers, then × ${calib.multiplier} calibration to the watchlist floor</div>
         <div class="mrow"><span>TVL, exp ${m.tvl_exponent}</span><span class="mtrack"><span class="mfill" style="width:${(r.tvl_usd / maxTvl * 100).toFixed(1)}%"></span></span><span class="mval">${money(r.tvl_usd)}</span></div>
         <div class="mrow"><span>momentum, 7d</span><span class="mtrack"><span class="mfill" style="width:${Math.min(100, Math.max(4, (r.change_7d == null ? 50 : (r.change_7d + 60) / 160 * 100))).toFixed(1)}%"></span></span><span class="mval">${pct(r.change_7d)} → ×${m.momentum_mult}</span></div>
@@ -343,7 +344,7 @@ function detailHtml(r) {
       <h2>Farm plan — ${r.plan.length} steps, before a token</h2>
       <div class="bd">
         <div class="vline"><b>${r.verdict.label}</b>${esc(r.verdict.text)}</div>
-        ${r.plan.map((s, i) => `<div class="dstep"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx">${esc(s.text)}</span><span><span class="chip cost">${esc(s.cost)}</span> <span class="chip">${esc(s.time)}</span></span></div>`).join('')}
+        ${r.plan.map((s, i) => `<div class="dstep"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx"><b class="sk">${esc(s.kind)}</b> ${esc(s.text)}</span><span><span class="chip cost">${esc(s.cost)}</span> <span class="chip">${esc(s.time)}</span></span></div>`).join('')}
         ${budgetsHtml(r)}
       </div>
     </section>

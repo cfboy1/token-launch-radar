@@ -111,6 +111,7 @@ export interface ModelReport {
 }
 
 export interface FarmStep {
+  kind: string;
   text: string;
   cost: string;
   time: string;
@@ -150,6 +151,8 @@ export interface BoardRow {
   };
   verdict: { label: VerdictLabel; cost_usd: number; multiple: number };
   farm_steps: string[];
+  /** The row's rank band across 200 bootstrap refits of the value model. */
+  rank_range?: [number, number];
 }
 
 export interface RadarRow extends Omit<BoardRow, 'farm_steps' | 'verdict'> {
@@ -525,8 +528,9 @@ function walletFor(chain: string): string {
   return 'a fresh browser wallet';
 }
 
-/** The plan: concrete steps that change with the protocol's own chains, category, TVL and age. */
-export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
+/** The plan: concrete steps that change with the protocol's own chains, category, TVL and age.
+    Each step carries a verb name that states its job, and one step is an exit rule with a number. */
+export function farmSteps(p: SnapshotProtocol, age: number | null, exitPct: number): FarmStep[] {
   const chain = p.chains.length > 0 ? p.chains[0]! : 'its main chain';
   const second = p.chains.length > 1 ? p.chains[1]! : null;
   const tvl = tvlOf(p);
@@ -541,29 +545,66 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
     : cat.includes('curator') || cat.includes('allocator')
       ? `Read ${p.name}'s vault strategy note once a week and act only on links published there — never from a DM, a reply or an ad.`
       : `Check ${p.name}'s own points, rewards or docs page once a week and claim only from links published there — never from a DM, a reply or an ad.`;
+  const exitLevel = tvl * (1 + exitPct / 100);
+  const own = p.change_7d == null ? 'no week recorded' : `${p.change_7d >= 0 ? '+' : ''}${p.change_7d!.toFixed(1)}% last week`;
   return [
     {
+      kind: 'setup',
       text: `Set up ${wallet} that will only ever touch ${p.name}, and fund it from an exchange so the airdrop source is one hop, not ten.`,
       cost: '≤ $3 gas',
       time: '10 min',
     },
     {
+      kind: 'verify',
+      text: `Reach ${p.name} from its page on defillama.com (protocol/${p.slug}) or its official accounts, bookmark the app and match the contract addresses against its docs. Never sign an approval from a link sent in a DM.`,
+      cost: 'free',
+      time: '10 min',
+    },
+    {
+      kind: 'core',
       text: actionFor(p, capital, chain) + small,
       cost: `$${capital} + ~$${capital >= 150 ? 8 : 4} gas`,
       time: '15 min',
     },
     second
-      ? { text: `Repeat the deposit on ${second}, ${p.name}'s second chain, so activity spans more than one chain in the same week.`, cost: `$${capital} + bridge fee`, time: '20 min' }
-      : { text: `Make one qualifying action each week — a deposit, a swap, a vote or a claim — on ${chain}, always through ${p.name}'s own app.`, cost: '~$2 gas/wk', time: '10 min/wk' },
+      ? {
+          kind: 'deepen',
+          text: `Repeat the deposit on ${second}, ${p.name}'s second chain, so activity spans more than one chain in the same week.`,
+          cost: `$${capital} + bridge fee`,
+          time: '20 min',
+        }
+      : {
+          kind: 'deepen',
+          text: `Make one qualifying action each week — a deposit, a swap, a vote or a claim — on ${chain}, always through ${p.name}'s own app.`,
+          cost: '~$2 gas/wk',
+          time: '10 min/wk',
+        },
     {
+      kind: 'cadence',
       text: young
         ? `Hold the position for at least ${hold} days, across at least ${Math.ceil(hold / 7)} separate weeks — ${p.name} is young (${age} days), and early consistency is what a launch snapshot catches.`
         : `Hold the position for at least ${hold} days, across at least three separate weeks, so the wallet's activity shows in more than one monthly snapshot.`,
       cost: 'capital stays in',
       time: `${hold} days`,
     },
-    { text: check, cost: 'free to check', time: '10 min/wk' },
-    { text: `Log the wallet address, every date and every transaction hash in one running file, so a claim form, an eligibility check or an unwind takes minutes.`, cost: 'free', time: '5 min/wk' },
+    {
+      kind: 'watch',
+      text: check,
+      cost: 'free to check',
+      time: '10 min/wk',
+    },
+    {
+      kind: 'exit',
+      text: `Exit rule, checked weekly: withdraw if ${p.name}'s TVL points below ${usd(exitLevel)} — that is ${exitPct.toFixed(1)}% in a week, worse than 95% of this snapshot's protocols (${own}) — and also if withdrawals pause or the team hints a snapshot has already been taken.`,
+      cost: 'free to check',
+      time: '5 min/wk',
+    },
+    {
+      kind: 'record',
+      text: `Log the wallet address, every date and every transaction hash in one running file, so a claim form, an eligibility check or an unwind takes minutes. A claim may ask the wallet to prove its history, and a drop is taxable income in many places at its value on the day it arrives.`,
+      cost: 'free',
+      time: '5 min/wk',
+    },
   ];
 }
 
@@ -575,7 +616,7 @@ export function planCostUsd(p: SnapshotProtocol, age: number | null): number {
   return capital + gas + 2 * weeks;
 }
 
-export function verdictFor(expected: number, costUsd: number, odds: number, rank: number, boardSize: number): FarmVerdict {
+export function verdictFor(expected: number, costUsd: number, odds: number, rank: number, boardSize: number, holdDays: number): FarmVerdict {
   const multiple = Math.round((expected / Math.max(1, costUsd)) * 10) / 10;
   const frac = rank / Math.max(1, boardSize);
   let label: VerdictLabel;
@@ -585,7 +626,9 @@ export function verdictFor(expected: number, costUsd: number, odds: number, rank
   else label = 'skip';
   const verdictWord = label === 'core' ? 'Core farm' : label === 'worth it' ? 'Worth it' : label === 'thin' ? 'Thin' : 'Skip';
   const multipleTxt = multiple >= 1000 ? Math.round(multiple).toLocaleString('en-US') : String(multiple);
-  const text = `${verdictWord}: row ${rank} of ${boardSize} on expected value, ${(odds * 100).toFixed(0)}% fitted odds, an all-in plan cost of about $${Math.round(costUsd)} — ${multipleTxt}x the cost if it pays.`;
+  const perHour = expected / Math.max(1, holdDays * 24);
+  const tbill = Math.max(1, Math.round(costUsd * 0.04 * (holdDays / 365)));
+  const text = `${verdictWord}: row ${rank} of ${boardSize} on expected value, ${(odds * 100).toFixed(0)}% fitted odds, an all-in plan cost of about $${Math.round(costUsd)} — ${multipleTxt}× the cost if it pays, about ${usd(perHour)} an hour if it pays across the ${holdDays}-day hold, while the same money earns about $${tbill} in a 4% T-bill.`;
   return { label, cost_usd: Math.round(costUsd), multiple, text };
 }
 
@@ -728,11 +771,32 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
       })(),
     },
   };
-  return { report, launch: fit, oddsFit, calib, ctx, keptSlugs, anchors };
+  return { report, launch: fit, oddsFit, calib, ctx, keptSlugs, anchors, compUsed: chosen.useComp, exitPct: quantileSorted(snapshot.protocols.map((p) => p.change_7d ?? null).filter((v): v is number => v !== null).sort((a, b) => a - b), 0.05) };
 }
 
 function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
+}
+
+/** Compact dollars, same shape as the dashboard's money(). */
+function usd(v: number): string {
+  const n = Math.abs(v);
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M`;
+  if (n >= 1e3) return `$${Math.round(n / 1e3)}K`;
+  return `$${Math.round(n)}`;
+}
+
+/** A seeded PRNG, so the bootstrap's two runs pick the same resamples. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 /** The ranked board: every watchlist slug plus every rankable pre-token protocol below the floor. */
@@ -764,9 +828,10 @@ export function buildBoard(snapshot: Snapshot, model: { launch: ValueFit; oddsFi
     };
   });
   scored.sort((a, b) => b.expected - a.expected || (a.p.slug < b.p.slug ? -1 : 1));
+  const exitPct = quantileSorted(snapshot.protocols.map((p) => p.change_7d ?? null).filter((v): v is number => v !== null).sort((a, b) => a - b), 0.05);
   const rows = scored.map((s, i) => {
     const cost = planCostUsd(s.p, s.age);
-    const verdict = verdictFor(s.expected, cost, s.odds, i + 1, scored.length);
+    const verdict = verdictFor(s.expected, cost, s.odds, i + 1, scored.length, holdDaysFor(s.age));
     return {
       rank: i + 1,
       slug: s.p.slug,
@@ -791,7 +856,7 @@ export function buildBoard(snapshot: Snapshot, model: { launch: ValueFit; oddsFi
         age_days_used: Math.min(s.age ?? AGE_UNKNOWN_DAYS, AGE_CAP_DAYS),
       },
       verdict: { label: verdict.label, cost_usd: verdict.cost_usd, multiple: verdict.multiple },
-      farm_steps: farmSteps(s.p, s.age).map(stepText),
+      farm_steps: farmSteps(s.p, s.age, exitPct).map(stepText),
     };
   });
   const above = rows.filter((r) => r.on_watchlist && r.implied_value_usd >= snapshot.floor_usd).length;
@@ -821,6 +886,32 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     .sort((a, b) => a.category < b.category ? -1 : 1);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
   const bySlug = new Map(snapshot.protocols.map((p) => [p.slug, p]));
+  // Rank uncertainty: refit the value model on 200 bootstrap resamples of the kept tokened rows
+  // (seeded, so two runs agree), re-rank the board each time, and record each row's rank band.
+  const tokened = snapshot.protocols
+    .filter((p) => p.mcap_usd !== null && (p.mcap_usd as number) > 0 && tvlOf(p) > 0)
+    .sort((a, b) => (a.slug < b.slug ? -1 : 1))
+    .map((p) => ({ p, f: featuresOf(p, snapshot.as_of, ctx, true) }));
+  const boardFeat = board.map((r) => {
+    const p = bySlug.get(r.slug) as SnapshotProtocol;
+    return { f: featuresOf(p, snapshot.as_of, ctx, false), odds: r.token_odds };
+  });
+  const rnd = mulberry32(20261114);
+  const tally: number[][] = board.map(() => []);
+  for (let it = 0; it < 200; it++) {
+    const sample: typeof tokened = [];
+    for (let i = 0; i < tokened.length; i++) sample.push(tokened[Math.floor(rnd() * tokened.length)]!);
+    const bs = robustFit(sample, model.compUsed).fit;
+    const vals = boardFeat.map((bf) => model.calib * launchValueOf(bf.f, bs) * bf.odds);
+    const order = vals.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v || (a.i < b.i ? -1 : 1));
+    order.forEach((o, place) => tally[o.i]!.push(place + 1));
+  }
+  const rankRange = (t: number[]): [number, number] => {
+    const s = [...t].sort((a, b) => a - b);
+    return [s[Math.floor(0.1 * s.length)] ?? 0, s[Math.floor(0.9 * s.length)] ?? 0];
+  };
+  board.forEach((r, i) => { r.rank_range = rankRange(tally[i]!); });
+  const exitPct = model.exitPct;
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -837,7 +928,7 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     rows: board.map((r) => {
       const p = bySlug.get(r.slug) as SnapshotProtocol;
       const cost = planCostUsd(p, r.age_days);
-      return { ...r, plan: farmSteps(p, r.age_days), verdict: verdictFor(r.implied_value_usd, cost, r.token_odds, r.rank, board.length) };
+      return { ...r, plan: farmSteps(p, r.age_days, exitPct), verdict: verdictFor(r.implied_value_usd, cost, r.token_odds, r.rank, board.length, holdDaysFor(r.age_days)) };
     }),
     live,
     anchors: model.anchors,

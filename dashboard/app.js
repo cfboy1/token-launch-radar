@@ -210,7 +210,7 @@ function boardHtml() {
     : `<tr>${HEADS.map(([label, key, cls], i) => `<th${cls || key ? ` class="${[cls, key ? 'sortable' : ''].filter(Boolean).join(' ')}"` : ''}${key ? ` data-sort="${key}"` : ''}${widths[i] ? ` style="width:${widths[i]}px"` : ''}>${label}${key ? sortArrow(key) : ''}</th>`).join('')}</tr>`;
   const body = live
     ? R.live.map((p, i) => `<tr><td class="rk">${String(i + 1).padStart(2, '0')}</td><td><span class="nm">${esc(p.name)}</span><span class="ct">${esc((p.category || '—').toLowerCase())}</span></td><td class="num">${money(p.mcap_usd)}</td><td class="num">${money(p.tvl_usd)}</td><td class="num">${dirPct(p.change_7d)}</td><td><span class="iv">×${p.mc_tvl.toFixed(2)}</span>${signal(p.mc_tvl * 1e9)}</td><td class="fm">trades today — the market's own value, never the model's</td></tr>`).join('')
-    : rows.slice(1).map(rowHtml).join('');
+    : rows.map(rowHtml).join('');
   return `
   ${bookHtml(scored)}
   ${stressHtml()}

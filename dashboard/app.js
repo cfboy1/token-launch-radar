@@ -50,7 +50,38 @@ const FILTERS = [
   ...topCats.map((c) => ({ key: 'cat:' + c, label: c.toLowerCase(), n: null, hot: false, on: false, test: (r) => r.category === c })),
   { key: 'live', label: 'already trading', n: R.live_size, hot: false, on: false, test: null },
 ];
-const state = { sort: 'rank', dir: 1, view: 'board', slug: null };
+const state = { sort: 'rank', dir: 1, view: 'board', slug: null, bMom: rep.fit.b_mom };
+
+/* ---------- live scoring: the stress slider re-ranks the sheet in the browser ---------- */
+/* The board ranks expected = calib × launch × odds. The momentum coefficient β is the fit's own
+   number; drag it and every row's momentum term moves by exp((β − βfit) × momentum01) — rows with
+   hot weeks move more than cold ones, so the whole sheet genuinely re-ranks. At β = βfit the
+   scored sheet is byte-for-byte the published one. */
+const mom01Of = (v) => Math.min(0.99, Math.max(-0.6, v == null ? 0 : v)) / 100;
+const verdictLabelFor = (rank, n, odds) => {
+  const frac = rank / Math.max(1, n);
+  if (frac <= 0.25 && odds >= 0.5) return 'core';
+  if (frac <= 0.6) return 'worth it';
+  if (frac <= 0.85) return 'thin';
+  return 'skip';
+};
+function scoredRows() {
+  const bNow = state.bMom;
+  const bFit = rep.fit.b_mom;
+  if (Math.abs(bNow - bFit) < 1e-9) {
+    return R.rows.map((r) => ({ r, exp: r.implied_value_usd, rank: r.rank, label: r.verdict.label }));
+  }
+  const scored = R.rows.map((r) => ({
+    r,
+    exp: Math.min(1e14, Math.max(1, Math.round(r.implied_value_usd * Math.exp((bNow - bFit) * mom01Of(r.change_7d))))),
+  }));
+  scored.sort((a, b) => b.exp - a.exp || (a.r.slug < b.r.slug ? -1 : 1));
+  scored.forEach((s, i) => {
+    s.rank = i + 1;
+    s.label = verdictLabelFor(s.rank, scored.length, s.r.token_odds);
+  });
+  return scored;
+}
 
 function route() {
   const h = location.hash.replace(/^#\/?/, '');
@@ -60,6 +91,8 @@ function route() {
   } else {
     state.view = 'board';
     state.slug = null;
+    const bm = h.match(/(?:^|,)b(-?\d+(?:\.\d+)?)(?:,|$)/);
+    state.bMom = bm ? Math.min(0.8, Math.max(-0.2, parseFloat(bm[1]))) : rep.fit.b_mom;
     if (h.startsWith('f/')) {
       const on = new Set(h.slice(2).split(',').filter(Boolean));
       for (const f of FILTERS) f.on = on.has(f.key);
@@ -71,7 +104,9 @@ window.addEventListener('hashchange', route);
 
 function setFilters() {
   const on = FILTERS.filter((f) => f.on && f.key !== 'live').map((f) => f.key);
-  history.replaceState(null, '', on.length ? `#/f/${on.join(',')}` : '#');
+  const shocked = Math.abs(state.bMom - rep.fit.b_mom) >= 1e-9 ? `b${state.bMom}` : null;
+  const parts = shocked ? [shocked, ...on] : on;
+  history.replaceState(null, '', parts.length ? `#/f/${parts.join(',')}` : '#');
 }
 
 /* ---------- the board ---------- */
@@ -82,39 +117,44 @@ function noteFor(r) {
   return `find · ${money(r.implied_value_usd)} under the floor`;
 }
 
-function filterRows() {
+function filterRows(scored) {
   const active = FILTERS.filter((f) => f.on && f.test);
-  const cmp = {
-    rank: (a, b) => (a.rank - b.rank) * state.dir,
-    name: (a, b) => a.name.localeCompare(b.name) * state.dir,
-    tvl: (a, b) => (a.tvl_usd - b.tvl_usd) * state.dir,
-    ch7: (a, b) => ((a.change_7d ?? -999) - (b.change_7d ?? -999)) * state.dir,
-    age: (a, b) => ((a.age_days ?? -1) - (b.age_days ?? -1)) * state.dir,
-    odds: (a, b) => (a.token_odds - b.token_odds) * state.dir,
-    launch: (a, b) => (a.launch_value_usd - b.launch_value_usd) * state.dir,
-    implied: (a, b) => (a.implied_value_usd - b.implied_value_usd) * state.dir,
-  }[state.sort];
-  return R.rows.filter((r) => active.every((f) => f.test(r))).sort(cmp);
+  const key = state.sort;
+  const cmp =
+    key === 'rank'
+      ? (a, b) => (a.rank - b.rank) * state.dir
+      : key === 'implied'
+        ? (a, b) => (a.exp - b.exp) * state.dir
+        : {
+            name: (a, b) => a.r.name.localeCompare(b.r.name) * state.dir,
+            tvl: (a, b) => (a.r.tvl_usd - b.r.tvl_usd) * state.dir,
+            ch7: (a, b) => ((a.r.change_7d ?? -999) - (b.r.change_7d ?? -999)) * state.dir,
+            age: (a, b) => ((a.r.age_days ?? -1) - (b.r.age_days ?? -1)) * state.dir,
+            odds: (a, b) => (a.r.token_odds - b.r.token_odds) * state.dir,
+            launch: (a, b) => (a.r.launch_value_usd - b.r.launch_value_usd) * state.dir,
+          }[key];
+  return scored.filter((s) => active.every((f) => f.test(s.r))).sort(cmp);
 }
 
-const rkCell = (r) => (picks.has(r.slug) ? `<span class="circ">${String(r.rank).padStart(2, '0')}</span>` : String(r.rank).padStart(2, '0'));
+const rkCell = (s) => (picks.has(s.r.slug) ? `<span class="circ">${String(s.rank).padStart(2, '0')}</span>` : String(s.rank).padStart(2, '0'));
 const nameCell = (r) => `<span class="nm"><a href="#/p/${encodeURIComponent(r.slug)}">${esc(r.name)}</a></span><span class="tg ${r.on_watchlist ? 'wl' : 'ex'}">${r.on_watchlist ? 'WL' : 'FIND'}</span><span class="ct">${esc((r.category || '—').toLowerCase())}</span>`;
 const farmCell = (r) => {
   const p = r.plan[1] || r.plan[0];
   return `${esc(p.text.split('.')[0])}<br><b>${esc(p.cost)} · ${esc(p.time)}</b>`;
 };
 
-function rowHtml(r) {
+function rowHtml(s) {
+  const r = s.r;
   return `<tr>
-    <td class="rk">${rkCell(r)}</td>
+    <td class="rk">${rkCell(s)}</td>
     <td>${nameCell(r)}</td>
     <td class="num">${money(r.tvl_usd)}</td>
     <td class="num">${dirPct(r.change_7d)}</td>
     <td class="num">${r.age_days == null ? 'new' : r.age_days + 'd'}</td>
     <td class="num">${oddsCell(r.token_odds)}</td>
     <td class="num">${money(r.launch_value_usd)}</td>
-    <td><span class="iv">${money(r.implied_value_usd)}</span>${signal(r.implied_value_usd)}<span class="mult">×${(r.implied_value_usd / r.tvl_usd).toFixed(2)}</span></td>
-    <td>${vdChip(r.verdict.label)}</td>
+    <td><span class="iv">${money(s.exp)}</span>${signal(s.exp)}<span class="mult">×${(s.exp / r.tvl_usd).toFixed(2)}</span></td>
+    <td>${vdChip(s.label)}</td>
     <td class="num fm">${farmCell(r)}</td>
   </tr>`;
 }
@@ -124,8 +164,41 @@ const HEADS = [
   ['odds', 'odds', 'num'], ['launch val', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null, 'num'],
 ];
 
+/* ---------- the desk's book: the rows the fit itself backs, as one costed portfolio ---------- */
+function bookHtml(scored) {
+  const core = scored
+    .filter((s) => s.label === 'core')
+    .sort((a, b) => b.exp / b.r.verdict.cost_usd - a.exp / a.r.verdict.cost_usd)
+    .slice(0, 10);
+  if (core.length < 3) return '';
+  const cost = core.reduce((a, s) => a + s.r.verdict.cost_usd, 0);
+  const exp = core.reduce((a, s) => a + s.exp, 0);
+  const oddsSorted = core.map((s) => s.r.token_odds).sort((a, b) => a - b);
+  const medOdds = Math.round(oddsSorted[Math.floor(oddsSorted.length / 2)] * 100);
+  const shocked = Math.abs(state.bMom - rep.fit.b_mom) >= 1e-9;
+  return `<section class="book" aria-label="the desk's book">
+    <div class="bhead">
+      <span class="btitle">THE DESK'S BOOK</span>
+      <span class="bsub">the ${core.length} core farms the fit itself backs, cheapest expected dollar first — deploy about <b>${money(cost)}</b> all-in, against <b>${money(exp)}</b> of combined expected value · median odds ${medOdds}%</span>
+      ${shocked ? `<span class="bshock">re-ranked live at β = ${state.bMom.toFixed(2)}</span>` : ''}
+    </div>
+    <div class="brow">${core.map((s, i) => `<a class="bk" href="#/p/${encodeURIComponent(s.r.slug)}"><span class="bi">${String(i + 1).padStart(2, '0')}</span><span class="bn">${esc(s.r.name.toLowerCase())}</span><span class="be">${money(s.exp)}</span><span class="bo">${Math.round(s.r.token_odds * 100)}%</span><span class="bc">$${s.r.verdict.cost_usd}</span></a>`).join('')}</div>
+  </section>`;
+}
+
+/* ---------- the stress slider ---------- */
+function stressHtml() {
+  const fit = rep.fit.b_mom;
+  const on = Math.abs(state.bMom - fit) >= 1e-9;
+  return `<div class="stress" role="group" aria-label="stress test">
+    <label>momentum coefficient β <input type="range" min="-0.2" max="0.8" step="0.01" value="${state.bMom}" aria-valuetext="β = ${state.bMom.toFixed(2)}"> <b>${state.bMom.toFixed(2)}</b></label>
+    <span class="snote">${on ? `the sheet has re-ranked live at β = ${state.bMom.toFixed(2)} — the fit says ${fit}` : `the fit's own β is ${fit} — drag it and every rank on this sheet recomputes in the browser`}</span>
+  </div>`;
+}
+
 function boardHtml() {
-  const rows = filterRows();
+  const scored = scoredRows();
+  const rows = filterRows(scored);
   const leader = rows[0];
   const live = FILTERS.find((f) => f.key === 'live').on;
   const filters = FILTERS.map((f) =>
@@ -139,37 +212,91 @@ function boardHtml() {
     ? R.live.map((p, i) => `<tr><td class="rk">${String(i + 1).padStart(2, '0')}</td><td><span class="nm">${esc(p.name)}</span><span class="ct">${esc((p.category || '—').toLowerCase())}</span></td><td class="num">${money(p.mcap_usd)}</td><td class="num">${money(p.tvl_usd)}</td><td class="num">${dirPct(p.change_7d)}</td><td><span class="iv">×${p.mc_tvl.toFixed(2)}</span>${signal(p.mc_tvl * 1e9)}</td><td class="fm">trades today — the market's own value, never the model's</td></tr>`).join('')
     : rows.slice(1).map(rowHtml).join('');
   return `
+  ${bookHtml(scored)}
+  ${stressHtml()}
   ${leader && !live ? leadHtml(leader) : '<div class="lead" style="display:none"></div>'}
   <div class="filters" role="group" aria-label="filters" style="grid-template-columns:repeat(${FILTERS.length},1fr)">${filters}</div>
   <table aria-label="the board">${thead}<tbody>${body}</tbody></table>
-  <p class="count">${live ? `${R.live_size} protocols already trade — the board itself ranks only the pre-token ${R.board_size}.` : `${rows.length} of ${R.board_size} rows shown · every watchlist slug is on the board · ranks 1–${R.board_size} by expected launch value`}</p>`;
+  <p class="count">${live ? `the fit's anchors — ${R.live_size} of the ${rep.counts.fit_kept} tokened records it was fitted on, largest first · the board itself ranks only the pre-token ${R.board_size}.` : `${rows.length} of ${R.board_size} rows shown · every watchlist slug is on the board · ranks 1–${R.board_size} by expected launch value`}</p>`;
 }
 
-function leadHtml(leader) {
-  const m = leader.model;
+function leadHtml(s) {
+  const r = s.r;
+  const m = r.model;
   return `<section class="lead" aria-label="the leader">
-    <span class="leadkey">№ 1 — this view's sheet</span>
+    <span class="leadkey">№ ${s.rank} — this view's sheet</span>
     <div class="who">
-      <div class="nm"><a href="#/p/${encodeURIComponent(leader.slug)}">${esc(leader.name)}</a></div>
-      <div class="ct">${esc((leader.category || '—').toLowerCase())} · ${leader.chains.slice(0, 2).map(esc).join(', ').toLowerCase()}${leader.chains.length > 2 ? `, +${leader.chains.length - 2}` : ''} · ${leader.on_watchlist ? 'watchlist' : 'our find'} · ${leader.age_days == null ? 'new' : leader.age_days + 'd'} with no token</div>
-      <div class="big">${money(leader.implied_value_usd)}</div>
-      <div class="biglab">EXPECTED LAUNCH VALUE · ${money(leader.launch_value_usd)} × ${Math.round(leader.token_odds * 100)}% ODDS</div>
+      <div class="nm"><a href="#/p/${encodeURIComponent(r.slug)}">${esc(r.name)}</a></div>
+      <div class="ct">${esc((r.category || '—').toLowerCase())} · ${r.chains.slice(0, 2).map(esc).join(', ').toLowerCase()}${r.chains.length > 2 ? `, +${r.chains.length - 2}` : ''} · ${r.on_watchlist ? 'watchlist' : 'our find'} · ${r.age_days == null ? 'new' : r.age_days + 'd'} with no token</div>
+      <div class="big">${money(s.exp)}</div>
+      <div class="biglab">EXPECTED LAUNCH VALUE · ${money(r.launch_value_usd)} × ${Math.round(r.token_odds * 100)}% ODDS</div>
       <div class="model">
-        <div class="mrow"><span>TVL, exp ${m.tvl_exponent}</span><span class="mtrack"><span class="mfill" style="width:${(leader.tvl_usd / maxTvl * 100).toFixed(1)}%"></span></span><span class="mval">${money(leader.tvl_usd)}</span></div>
-        <div class="mrow"><span>momentum, 7d</span><span class="mtrack"><span class="mfill" style="width:${Math.min(100, Math.max(4, (leader.change_7d == null ? 50 : (leader.change_7d + 60) / 160 * 100))).toFixed(1)}%"></span></span><span class="mval">${pct(leader.change_7d)}</span></div>
+        <div class="mrow"><span>TVL, exp ${m.tvl_exponent}</span><span class="mtrack"><span class="mfill" style="width:${(r.tvl_usd / maxTvl * 100).toFixed(1)}%"></span></span><span class="mval">${money(r.tvl_usd)}</span></div>
+        <div class="mrow"><span>momentum, 7d</span><span class="mtrack"><span class="mfill" style="width:${Math.min(100, Math.max(4, (r.change_7d == null ? 50 : (r.change_7d + 60) / 160 * 100))).toFixed(1)}%"></span></span><span class="mval">${pct(r.change_7d)}</span></div>
         <div class="mrow"><span>age factor</span><span class="mtrack"><span class="mfill" style="width:${(m.age_days_used / 1095 * 100).toFixed(1)}%"></span></span><span class="mval">×${m.age_mult}</span></div>
-        <div class="mrow"><span>token odds</span><span class="mtrack"><span class="mfill v" style="width:${(leader.token_odds * 100).toFixed(1)}%"></span></span><span class="mval">${Math.round(leader.token_odds * 100)}%</span></div>
+        <div class="mrow"><span>token odds</span><span class="mtrack"><span class="mfill v" style="width:${(r.token_odds * 100).toFixed(1)}%"></span></span><span class="mval">${Math.round(r.token_odds * 100)}%</span></div>
       </div>
     </div>
     <div class="plan">
       <h2>Farm plan — before a token</h2>
-      <div class="vline"><b>${leader.verdict.label}</b>${esc(leader.verdict.text)}</div>
-      ${leader.plan.slice(0, 3).map((s, i) => `<div class="step"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx">${esc(s.text)}</span><span><span class="chip cost">${esc(s.cost)}</span> <span class="chip">${esc(s.time)}</span></span></div>`).join('')}
+      <div class="vline"><b>${r.verdict.label}</b>${esc(r.verdict.text)}</div>
+      ${r.plan.slice(0, 3).map((st, i) => `<div class="step"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx">${esc(st.text)}</span><span><span class="chip cost">${esc(st.cost)}</span> <span class="chip">${esc(st.time)}</span></span></div>`).join('')}
     </div>
   </section>`;
 }
 
 /* ---------- the detail view ---------- */
+/* ---------- the anchors: the same fit, scored against tokens that already trade ---------- */
+function scatterHtml() {
+  const pts = R.anchors;
+  const lg = (v) => Math.log10(Math.max(1, v));
+  const xs = pts.map((p) => lg(p.pred_usd));
+  const ys = pts.map((p) => lg(p.mcap_usd));
+  const lo = Math.min(...xs, ...ys) - 0.15;
+  const hi = Math.max(...xs, ...ys) + 0.15;
+  const W = 320, H = 220, PAD = 34;
+  const sx = (v) => PAD + ((lg(v) - lo) / (hi - lo)) * (W - PAD - 10);
+  const sy = (v) => H - PAD - ((lg(v) - lo) / (hi - lo)) * (H - PAD - 14);
+  const P = (x, y) => `${sx(10 ** x).toFixed(1)},${sy(10 ** y).toFixed(1)}`;
+  const band = `<polygon points="${P(lo, lo + 0.5)} ${P(hi, hi + 0.5)} ${P(hi, hi - 0.5)} ${P(lo, lo - 0.5)}" class="band"/>`;
+  const diag = `<line x1="${sx(10 ** lo).toFixed(1)}" y1="${sy(10 ** lo).toFixed(1)}" x2="${sx(10 ** hi).toFixed(1)}" y2="${sy(10 ** hi).toFixed(1)}" class="diag"/>`;
+  const dots = pts
+    .map((p) => {
+      const off = Math.abs(lg(p.pred_usd) - lg(p.mcap_usd));
+      return `<circle cx="${sx(p.pred_usd).toFixed(1)}" cy="${sy(p.mcap_usd).toFixed(1)}" r="3.2" class="dot${off <= 0.5 ? ' on' : ''}"><title>${esc(p.name)}: fitted ${money(p.pred_usd)}, trades at ${money(p.mcap_usd)}</title></circle>`;
+    })
+    .join('');
+  const ratios = pts.map((p) => Math.max(p.pred_usd / p.mcap_usd, p.mcap_usd / p.pred_usd)).sort((a, b) => a - b);
+  const med = ratios[Math.floor(ratios.length / 2)];
+  const onLine = pts.filter((p) => Math.abs(lg(p.pred_usd) - lg(p.mcap_usd)) <= 0.5).length;
+  return `<div class="scatter" aria-label="the anchors scatter">
+    <h3>The anchors — the same fit against tokens that already trade</h3>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="predicted versus actual market cap, log-log">
+      ${band}${diag}${dots}
+      <text x="${sx(10 ** lo)}" y="${H - 8}" class="ax">fitted launch value →</text>
+      <text x="8" y="${sy(10 ** hi) + 4}" class="ax" transform="rotate(-90 10 ${sy(10 ** hi)})"> actual mcap →</text>
+    </svg>
+    <p class="scap">Every dot is one of the <b>${pts.length}</b> tokened protocols the fit was built on — in sample, by definition, so read it as the fit's own anchors, not a promise: <b>${onLine}/${pts.length}</b> land within half a decade of the line, median miss <b>×${med.toFixed(1)}</b>, and only ${pts.length - ratios.filter((r) => r <= 10).length} sit outside a full decade. The honest out-of-sample numbers are the two fold errors above — those rows were never fitted. The wildest records (liquid-staking wrappers, bridges) were trimmed from the fit entirely.</p>
+  </div>`;
+}
+
+/* ---------- deposit-sized plans: the same steps at four deposits ---------- */
+function budgetsHtml(r) {
+  const hold = r.age_days == null ? 60 : r.age_days < 180 ? 60 : r.age_days < 730 ? 45 : 30;
+  const weeks = Math.ceil(hold / 7);
+  const rowsB = [50, 150, 250, 1000]
+    .map((b) => {
+      const cost = b + (b >= 150 ? 8 : 4) + 2 * weeks;
+      return `<tr><td>$${b.toLocaleString('en-US')}</td><td>$${cost.toLocaleString('en-US')}</td><td>${money(r.implied_value_usd)}</td><td>×${Math.round(r.implied_value_usd / cost).toLocaleString('en-US')}</td></tr>`;
+    })
+    .join('');
+  return `<div class="budgets" aria-label="deposit-sized plan costs">
+    <h3>Your deposit, sized</h3>
+    <table><tr><th>deposit</th><th>all-in cost</th><th>expected if it pays</th><th>× your cost</th></tr>${rowsB}</table>
+    <p class="scap">The prize is one wallet's airdrop: a bigger deposit farms the same expected prize at a lower multiple — never a bigger one. All-in cost = deposit + one-off gas + weekly gas over the ${hold}-day hold.</p>
+  </div>`;
+}
+
 function detailHtml(r) {
   const m = r.model;
   const sameCat = R.rows.filter((x) => x !== r && x.category === r.category).slice(0, 3);
@@ -211,6 +338,7 @@ function detailHtml(r) {
         <div class="mrow"><span>token odds</span><span class="mtrack"><span class="mfill v" style="width:${(r.token_odds * 100).toFixed(1)}%"></span></span><span class="mval">${Math.round(r.token_odds * 100)}%</span></div>
         <p class="msum">The fit was tested on data it never saw: held-out median error <b>${rep.folds[0].median_abs_err_pct}%</b> and <b>${rep.folds[1].median_abs_err_pct}%</b> across two folds — the honest spread of predicting a market cap from a TVL. A leave-one-out comp term (each row's category peers' median mcap/TVL, itself excluded) was also fitted and <b>${rep.comp_term.kept ? 'kept' : 'dropped'}</b>: with it, held-out errors were ${rep.comp_term.errors_with[0]}% / ${rep.comp_term.errors_with[1]}%, against ${rep.comp_term.errors_without[0]}% / ${rep.comp_term.errors_without[1]}% without — the leaner fit won, so that is the one on the page.</p>
         <p class="msum" style="margin-top:8px">The odds fit reads all ${rep.odds.n} protocols (base rate ${Math.round(rep.odds.base_rate * 100)}% record a token) plus each category's own token rate, shrunk toward the global rate when a category is thin. Calibration sets the watchlist's median expected value to the snapshot's own ${money(R.floor_usd)} floor; <b>${calib.watchlist_above_floor}/${calib.watchlist_size}</b> watchlist rows land at or above it. Nothing is special-cased by name.</p>
+        ${scatterHtml()}
         <div class="peers" aria-label="peers">${peerRows}</div>
         <p class="msum" style="margin-top:12px">The comps the market quotes — median mcap/TVL per category, shrunk toward the global median when a category has few peers:</p>
         <div class="peers" aria-label="comps" style="margin-top:4px">${compTable}</div>
@@ -221,6 +349,7 @@ function detailHtml(r) {
       <div class="bd">
         <div class="vline"><b>${r.verdict.label}</b>${esc(r.verdict.text)}</div>
         ${r.plan.map((s, i) => `<div class="dstep"><span class="sno">${String(i + 1).padStart(2, '0')}</span><span class="stx">${esc(s.text)}</span><span><span class="chip cost">${esc(s.cost)}</span> <span class="chip">${esc(s.time)}</span></span></div>`).join('')}
+        ${budgetsHtml(r)}
       </div>
     </section>
   </div>`;
@@ -249,7 +378,7 @@ function render() {
   $('#meth').innerHTML =
     `<b>The model, fitted and tested.</b> launch value = TVL^${rep.fit.b_tvl} × momentum × age, an ordinary-least-squares fit on the snapshot's tokened protocols (the ${rep.fit.n} cleanest of ${rep.counts.tokened}, two outlier-trim passes), tested held-out twice: fold errors ${rep.folds[0].median_abs_err_pct}% and ${rep.folds[1].median_abs_err_pct}%. A leave-one-out comp term was also fitted and dropped when it failed its own held-out test (${rep.comp_term.errors_with[0]}%/${rep.comp_term.errors_with[1]}% with, ${rep.comp_term.errors_without[0]}%/${rep.comp_term.errors_without[1]}% without) — the leaner fit is the one shown. ` +
     `A logistic fit over all ${rep.odds.n} protocols gives the odds a token ever comes, reading each category's own token rate as well; the board ranks <b>expected value = launch value × odds</b>. One calibration multiplier (${rep.calibration.multiplier}) sets the watchlist's median to the snapshot's own ${money(R.floor_usd)} floor. ` +
-    `Circled ranks are the desk's picks. Verdicts grade the farm plan on the board's own curve. "Pre-token" is what DefiLlama records today, never proof a token does not exist — an estimate, never a promise.`;
+    `Circled ranks are the desk's picks. Verdicts grade the farm plan on the board's own curve. The desk's book and every rank on this sheet recompute in the browser from the same fitted coefficients — drag the momentum slider (or open #/b0.05) and the sheet re-ranks live. "Pre-token" is what DefiLlama records today, never proof a token does not exist — an estimate, never a promise.`;
   view.innerHTML = state.view === 'detail' ? detailHtml(R.rows.find((r) => r.slug === state.slug) || R.rows[0]) : boardHtml();
 
   for (const b of view.querySelectorAll('.filters button')) {
@@ -266,6 +395,16 @@ function render() {
       if (state.sort === key) state.dir = -state.dir;
       else { state.sort = key; state.dir = 1; }
       render();
+    });
+  }
+  const range = view.querySelector('.stress input');
+  if (range) {
+    range.addEventListener('input', () => {
+      const v = parseFloat(range.value);
+      if (Number.isFinite(v) && Math.abs(v - state.bMom) >= 1e-9) {
+        state.bMom = v;
+        render();
+      }
     });
   }
 }

@@ -101,7 +101,7 @@ export interface ModelReport {
     watchlist_above_floor: number;
     watchlist_size: number;
   };
-  counts: { scanned: number; no_token: number; tokened: number; board: number; early: number; live: number };
+  counts: { scanned: number; no_token: number; tokened: number; board: number; early: number; live: number; fit_kept: number };
 }
 
 export interface FarmStep {
@@ -151,15 +151,26 @@ export interface RadarRow extends Omit<BoardRow, 'farm_steps' | 'verdict'> {
   verdict: FarmVerdict;
 }
 
-export interface LiveRow {
+/** One anchor: a tokened protocol the fit was built on, with its real market cap beside the fitted value. */
+export interface Anchor {
   slug: string;
+  name: string;
+  category: string | null;
+  pred_usd: number;
+  mcap_usd: number;
+}
+
+export interface LiveRow {  slug: string;
   name: string;
   category: string | null;
   chains: string[];
   tvl_usd: number;
   mcap_usd: number;
   change_7d: number | null;
+  age_days: number | null;
   mc_tvl: number;
+  /** The same fitted model's launch value for this protocol, shown against its real market cap. */
+  pred_usd: number;
 }
 
 export interface ShrunkenComp {
@@ -185,6 +196,7 @@ export interface RadarData {
   live_size: number;
   rows: RadarRow[];
   live: LiveRow[];
+  anchors: Anchor[];
 }
 
 export class SnapshotError extends Error {
@@ -375,7 +387,7 @@ function quantileSorted(sorted: number[], q: number): number {
  * steer the whole line. So: fit, keep the 90% of rows whose residual is not among the wildest,
  * refit, and again. Deterministic, and the held-out tests still judge the result on unseen data.
  */
-function robustFit(sample: Array<{ p: SnapshotProtocol; f: Features }>, useComp: boolean): ValueFit {
+function robustFit(sample: Array<{ p: SnapshotProtocol; f: Features }>, useComp: boolean): { fit: ValueFit; keptSlugs: string[] } {
   let fit = fitLogLinear(sample, useComp);
   let kept = sample;
   for (let pass = 0; pass < 2; pass++) {
@@ -384,7 +396,7 @@ function robustFit(sample: Array<{ p: SnapshotProtocol; f: Features }>, useComp:
     kept = kept.filter((s) => Math.abs(Math.log(launchValueOf(s.f, fit)) - Math.log(s.p.mcap_usd as number)) <= cut);
     fit = fitLogLinear(kept, useComp);
   }
-  return fit;
+  return { fit, keptSlugs: kept.map((s) => s.p.slug) };
 }
 
 /** A fit's held-out error on a sample it never saw: median absolute percent error and log-space R^2. */
@@ -540,21 +552,26 @@ export function stepText(step: FarmStep): string {
   return s;
 }
 
-export function liveRows(snapshot: Snapshot): LiveRow[] {
+export function liveRows(snapshot: Snapshot, ctx: CompsContext, fit: ValueFit, kept: Set<string>): LiveRow[] {
   return snapshot.protocols
-    .filter((p) => !isPreToken(p) && p.mcap_usd !== null && tvlOf(p) > 0 && (p.category ?? '') !== 'CEX')
+    .filter((p) => kept.has(p.slug) && p.mcap_usd !== null && tvlOf(p) > 0 && (p.category ?? '') !== 'CEX')
     .sort((a, b) => (b.mcap_usd ?? 0) - (a.mcap_usd ?? 0) || b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1))
     .slice(0, LIVE_ROWS)
-    .map((p) => ({
-      slug: p.slug,
-      name: p.name,
-      category: p.category,
-      chains: p.chains,
-      tvl_usd: p.tvl_usd,
-      mcap_usd: p.mcap_usd as number,
-      change_7d: p.change_7d,
-      mc_tvl: Math.round(((p.mcap_usd as number) / tvlOf(p)) * 100) / 100,
-    }));
+    .map((p) => {
+      const pred = launchValueOf(featuresOf(p, snapshot.as_of, ctx, false), fit);
+      return {
+        slug: p.slug,
+        name: p.name,
+        category: p.category,
+        chains: p.chains,
+        tvl_usd: p.tvl_usd,
+        mcap_usd: p.mcap_usd as number,
+        change_7d: p.change_7d,
+        age_days: ageDays(snapshot.as_of, p.listed_at),
+        mc_tvl: Math.round(((p.mcap_usd as number) / tvlOf(p)) * 100) / 100,
+        pred_usd: Math.round(pred),
+      };
+    });
 }
 
 /* ---------------------- the whole model ---------------------- */
@@ -571,13 +588,25 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
   // The comp term is a candidate, not an assumption: fit both variants, keep the one whose
   // held-out errors are lower on average, and record both on the page.
   const variants = [false, true].map((useComp) => {
-    const folds: [FoldResult, FoldResult] = [testFit(robustFit(evens, useComp), odds_), testFit(robustFit(odds_, useComp), evens)];
+    const folds: [FoldResult, FoldResult] = [testFit(robustFit(evens, useComp).fit, odds_), testFit(robustFit(odds_, useComp).fit, evens)];
     return { useComp, folds, avg: (folds[0].median_abs_err_pct + folds[1].median_abs_err_pct) / 2 };
   });
   const chosen = variants[0].avg <= variants[1].avg ? variants[0] : variants[1];
   const foldA = chosen.folds[0];
   const foldB = chosen.folds[1];
-  const fit = robustFit(tokened, chosen.useComp);
+  const full = robustFit(tokened, chosen.useComp);
+  const fit = full.fit;
+  const keptSlugs = new Set(full.keptSlugs);
+  const anchors: Anchor[] = snapshot.protocols
+    .filter((p) => keptSlugs.has(p.slug) && p.mcap_usd !== null)
+    .sort((a, b) => (b.mcap_usd as number) - (a.mcap_usd as number) || (a.slug < b.slug ? -1 : 1))
+    .map((p) => ({
+      slug: p.slug,
+      name: p.name,
+      category: p.category,
+      pred_usd: Math.round(launchValueOf(featuresOf(p, snapshot.as_of, ctx, true), fit)),
+      mcap_usd: p.mcap_usd as number,
+    }));
 
   const labelled = snapshot.protocols
     .filter((p) => tvlOf(p) > 0)
@@ -595,7 +624,7 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
   const calib = snapshot.floor_usd / Math.max(1, watchlistMedian);
 
   const boardCount = watchlist.length + snapshot.protocols.filter((p) => !snapshot.watchlist.includes(p.slug) && isRankable(p) && tvlOf(p) < snapshot.floor_usd).length;
-  const live = liveRows(snapshot);
+  const live = liveRows(snapshot, ctx, fit, keptSlugs);
   const report: ModelReport = {
     fit: { b0: round3(fit.b0), b_tvl: round3(fit.b_tvl), b_mom: round3(fit.b_mom), b_age: round3(fit.b_age), b_comp: round3(fit.b_comp), n: fit.n },
     folds: [foldA, foldB],
@@ -619,9 +648,10 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
       board: boardCount,
       early: boardCount - watchlist.length,
       live: live.length,
+      fit_kept: keptSlugs.size,
     },
   };
-  return { report, launch: fit, oddsFit, calib, ctx };
+  return { report, launch: fit, oddsFit, calib, ctx, keptSlugs, anchors };
 }
 
 function round3(v: number): number {
@@ -696,7 +726,7 @@ export function buildBoard(snapshot: Snapshot, model: { launch: ValueFit; oddsFi
 export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData } {
   const model = fitModel(snapshot);
   const board = buildBoard(snapshot, model);
-  const live = liveRows(snapshot);
+  const live = liveRows(snapshot, model.ctx, model.launch, model.keptSlugs);
   const ctx = model.ctx;
   const comps: ShrunkenComp[] = [...ctx.ratios.entries()]
     .map(([category, entries]) => {
@@ -733,6 +763,7 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       return { ...r, plan: farmSteps(p, r.age_days), verdict: verdictFor(r.implied_value_usd, cost, r.token_odds, r.rank, board.length) };
     }),
     live,
+    anchors: model.anchors,
   };
   return { board, radar };
 }

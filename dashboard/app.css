@@ -138,6 +138,49 @@ td.num,.iv{font-family:var(--mono);font-size:11px}
 
 /* ---------- footer ---------- */
 .foot{margin-top:12px;display:flex;gap:36px;justify-content:space-between;border-top:2px solid var(--ink);padding-top:8px}
+
+/* ---------- the desk's book ---------- */
+.book{border:2px solid var(--ink);background:#fff;padding:10px 14px 12px;margin-bottom:10px}
+.bhead{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+.btitle{font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.14em;color:var(--verm)}
+.bsub{font-size:11.5px;color:var(--faint)}
+.bsub b{color:var(--ink)}
+.bshock{font-family:var(--mono);font-size:9.5px;color:var(--verm);border:1px dashed var(--verm);padding:1px 6px}
+.brow{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.bk{display:grid;grid-template-columns:20px 1fr auto;grid-template-rows:auto auto;text-decoration:none;border:1px solid var(--hair);padding:5px 7px;background:var(--paper);color:inherit;min-width:0}
+.bk:hover{border-color:var(--ink)}
+.bk .bi{font-family:var(--mono);font-size:9px;color:var(--faint);grid-row:1/3;align-self:center}
+.bk .bn{font-size:11px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;grid-column:2/4}
+.bk .be{font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--ink)}
+.bk .bo{font-family:var(--mono);font-size:9px;color:var(--teal);margin-left:6px}
+.bk .bc{font-family:var(--mono);font-size:9px;color:var(--faint);margin-left:6px}
+
+/* ---------- the stress slider ---------- */
+.stress{display:flex;gap:14px;align-items:baseline;padding:8px 12px;border:1px dashed var(--ink);background:#fff;margin-bottom:10px;flex-wrap:wrap}
+.stress label{font-family:var(--mono);font-size:10.5px;color:var(--ink);display:flex;gap:8px;align-items:center}
+.stress input[type=range]{width:200px;accent-color:var(--verm)}
+.stress b{font-family:var(--mono);color:var(--verm);min-width:34px}
+.stress .snote{font-size:10.5px;color:var(--faint)}
+
+/* ---------- the anchors scatter ---------- */
+.scatter{margin-top:14px;border-top:1px dashed var(--hair);padding-top:10px}
+.scatter h3,.budgets h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin:0 0 6px}
+.scatter svg{width:100%;max-width:420px;height:auto;display:block;margin:4px 0 6px}
+.scatter .band{fill:var(--teal);fill-opacity:.09}
+.scatter .diag{stroke:var(--ink);stroke-width:1;stroke-dasharray:5 4}
+.scatter .dot{fill:var(--verm);fill-opacity:.85;stroke:var(--ink);stroke-width:.6}
+.scatter .dot.on{fill:var(--teal)}
+.scatter .ax{font-family:var(--mono);font-size:8.5px;fill:var(--faint)}
+.scap{font-size:11px;color:var(--faint);margin:0;max-width:640px}
+.scap b{color:var(--ink)}
+.scap em{color:var(--ink);font-style:normal;font-weight:700}
+
+/* ---------- deposit-sized budgets ---------- */
+.budgets{margin-top:12px;border-top:1px dashed var(--hair);padding-top:10px}
+.budgets table{border-collapse:collapse;font-size:11px;margin:4px 0 6px}
+.budgets th{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--faint);text-align:right;padding:2px 12px 2px 0;border-bottom:1px solid var(--hair)}
+.budgets td{font-family:var(--mono);font-size:11px;color:var(--ink);text-align:right;padding:3px 12px 3px 0;border-bottom:1px dotted var(--hair)}
+.budgets td:first-child,.budgets th:first-child{text-align:left;color:var(--verm);font-weight:700}
 .meth{font-size:10.5px;color:var(--faint);max-width:840px}
 .meth b{color:var(--ink)}
 .legend{font-family:var(--mono);font-size:9px;color:var(--faint);text-align:right;line-height:1.9;white-space:nowrap}

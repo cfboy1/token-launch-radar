@@ -177,7 +177,7 @@ function bookHtml(scored) {
       <span class="bsub">the ${core.length} core farms the fit itself backs, cheapest expected dollar first — deploy about <b>${money(cost)}</b> all-in, against <b>${money(exp)}</b> of combined expected value · median odds ${medOdds}%</span>
       ${shocked ? `<span class="bshock">re-ranked live at β = ${state.bMom.toFixed(2)}</span>` : ''}
     </div>
-    <div class="brow">${core.map((s, i) => `<a class="bk" href="#/p/${encodeURIComponent(s.r.slug)}"><span class="bi">${String(i + 1).padStart(2, '0')}</span><span class="bn">${esc(s.r.name.toLowerCase())}</span><span class="be">${money(s.exp)}</span><span class="bo">${Math.round(s.r.token_odds * 100)}%</span><span class="bc">$${s.r.verdict.cost_usd}</span></a>`).join('')}</div>
+    <div class="brow">${core.map((s, i) => `<a class="bk" href="#/p/${encodeURIComponent(s.r.slug)}"><span class="bi">${String(i + 1).padStart(2, '0')}</span><span class="bn">${esc(s.r.name.toLowerCase())}</span><span class="bm"><b>${money(s.exp)}</b> · <span class="o">${Math.round(s.r.token_odds * 100)}%</span> · <span class="c">$${s.r.verdict.cost_usd}</span></span></a>`).join('')}</div>
   </section>`;
 }
 
@@ -199,10 +199,10 @@ function boardHtml() {
   const filters = FILTERS.map((f) =>
     `<button type="button" class="${f.hot ? 'hot' : ''}" aria-pressed="${f.on}" data-key="${f.key}">${f.label}${f.n != null ? ` <span class="n">×${f.n}</span>` : ''}</button>`).join('');
   const sortArrow = (key) => (state.sort === key ? `<span class="arr">${state.dir > 0 ? '▲' : '▼'}</span>` : '');
-  const widths = [40, '', 84, 62, 52, 50, 88, 182, 72, 260];
+  const widths = ['3.1%', '', '6.4%', '4.7%', '3.9%', '3.8%', '6.6%', '13.6%', '5.4%', '19.5%'];
   const thead = live
     ? '<tr><th>rk</th><th>protocol</th><th class="num">mcap</th><th class="num">tvl</th><th class="num">7d</th><th>mcap / tvl</th><th>what it is</th></tr>'
-    : `<tr>${HEADS.map(([label, key, cls], i) => `<th${cls || key ? ` class="${[cls, key ? 'sortable' : ''].filter(Boolean).join(' ')}"` : ''}${key ? ` data-sort="${key}"` : ''}${widths[i] ? ` style="width:${widths[i]}px"` : ''}>${label}${key ? sortArrow(key) : ''}</th>`).join('')}</tr>`;
+    : `<tr>${HEADS.map(([label, key, cls], i) => `<th${cls || key ? ` class="${[cls, key ? 'sortable' : ''].filter(Boolean).join(' ')}"` : ''}${key ? ` data-sort="${key}"` : ''}${widths[i] ? ` style="width:${widths[i]}"` : ''}>${label}${key ? sortArrow(key) : ''}</th>`).join('')}</tr>`;
   const body = live
     ? R.live.map((p, i) => `<tr><td class="rk">${String(i + 1).padStart(2, '0')}</td><td><span class="nm">${esc(p.name)}</span><span class="ct">${esc((p.category || '—').toLowerCase())}</span></td><td class="num">${money(p.mcap_usd)}</td><td class="num">${money(p.tvl_usd)}</td><td class="num">${dirPct(p.change_7d)}</td><td><span class="iv">×${p.mc_tvl.toFixed(2)}</span>${signal(p.mc_tvl * 1e9)}</td><td class="fm">trades today — the market's own value, never the model's</td></tr>`).join('')
     : rows.map(rowHtml).join('');

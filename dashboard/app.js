@@ -219,7 +219,7 @@ function leadHtml(s) {
   const r = s.r;
   const m = r.model;
   return `<section class="lead" aria-label="the leader">
-    <span class="leadkey">№ ${s.rank} — this view's sheet</span>
+    <span class="leadkey">RANK ${s.rank} — THIS VIEW'S SHEET</span>
     <div class="who">
       <div class="nm"><a href="#/p/${encodeURIComponent(r.slug)}">${esc(r.name)}</a></div>
       <div class="ct">${esc((r.category || '—').toLowerCase())} · ${r.chains.slice(0, 2).map(esc).join(', ').toLowerCase()}${r.chains.length > 2 ? `, +${r.chains.length - 2}` : ''} · ${r.on_watchlist ? 'watchlist' : 'our find'} · ${r.age_days == null ? 'new' : r.age_days + 'd'} with no token</div>

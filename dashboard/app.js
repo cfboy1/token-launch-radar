@@ -31,11 +31,6 @@ const dirPct = (v) => (v == null ? '—' : `<span class="${v >= 0 ? 'up' : 'down
 const oddsCell = (o) => `<span class="odds ${o >= 0.5 ? 'hi' : 'lo'}">${Math.round(o * 100)}%</span>`;
 const vdChip = (label) => `<span class="vd vd-${label.replace(' ', '')}">${label === 'worth it' ? 'worth' : label}</span>`;
 
-/** The desk's picks: watchlist rows with positive momentum, oldest run first. */
-const picks = new Set(
-  R.rows.filter((r) => r.on_watchlist && (r.change_7d ?? -1) > 0).sort((a, b) => (b.age_days ?? 0) - (a.age_days ?? 0)).slice(0, 4).map((r) => r.slug),
-);
-
 const topCats = [...R.rows.reduce((m, r) => { if (r.category) m.set(r.category, (m.get(r.category) || 0) + 1); return m; }, new Map())]
   .sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]);
 
@@ -136,7 +131,7 @@ function filterRows(scored) {
   return scored.filter((s) => active.every((f) => f.test(s.r))).sort(cmp);
 }
 
-const rkCell = (s) => (picks.has(s.r.slug) ? `<span class="circ">${String(s.rank).padStart(2, '0')}</span>` : String(s.rank).padStart(2, '0'));
+const rkCell = (s) => String(s.rank).padStart(2, '0');
 const nameCell = (r) => `<span class="nm"><a href="#/p/${encodeURIComponent(r.slug)}">${esc(r.name)}</a></span><span class="tg ${r.on_watchlist ? 'wl' : 'ex'}">${r.on_watchlist ? 'WL' : 'FIND'}</span><span class="ct">${esc((r.category || '—').toLowerCase())}</span>`;
 const farmCell = (r) => {
   const p = r.plan[1] || r.plan[0];
@@ -378,7 +373,7 @@ function render() {
   $('#meth').innerHTML =
     `<b>The model, fitted and tested.</b> launch value = TVL^${rep.fit.b_tvl} × momentum × age, an ordinary-least-squares fit on the snapshot's tokened protocols (the ${rep.fit.n} cleanest of ${rep.counts.tokened}, two outlier-trim passes), tested held-out twice: fold errors ${rep.folds[0].median_abs_err_pct}% and ${rep.folds[1].median_abs_err_pct}%. A leave-one-out comp term was also fitted and dropped when it failed its own held-out test (${rep.comp_term.errors_with[0]}%/${rep.comp_term.errors_with[1]}% with, ${rep.comp_term.errors_without[0]}%/${rep.comp_term.errors_without[1]}% without) — the leaner fit is the one shown. ` +
     `A logistic fit over all ${rep.odds.n} protocols gives the odds a token ever comes, reading each category's own token rate as well; the board ranks <b>expected value = launch value × odds</b>. One calibration multiplier (${rep.calibration.multiplier}) sets the watchlist's median to the snapshot's own ${money(R.floor_usd)} floor. ` +
-    `Circled ranks are the desk's picks. Verdicts grade the farm plan on the board's own curve. The desk's book and every rank on this sheet recompute in the browser from the same fitted coefficients — drag the momentum slider (or open #/b0.05) and the sheet re-ranks live. "Pre-token" is what DefiLlama records today, never proof a token does not exist — an estimate, never a promise.`;
+    `Verdicts grade the farm plan on the board's own curve. The desk's book and every rank on this sheet recompute in the browser from the same fitted coefficients — drag the momentum slider (or open #/b0.05) and the sheet re-ranks live. "Pre-token" is what DefiLlama records today, never proof a token does not exist — an estimate, never a promise.`;
   view.innerHTML = state.view === 'detail' ? detailHtml(R.rows.find((r) => r.slug === state.slug) || R.rows[0]) : boardHtml();
 
   for (const b of view.querySelectorAll('.filters button')) {

@@ -142,6 +142,13 @@ td.num,.iv{font-family:var(--mono);font-size:11px}
 /* ---------- footer ---------- */
 .foot{margin-top:12px;display:flex;gap:36px;justify-content:space-between;border-top:2px solid var(--ink);padding-top:8px}
 
+/* ---------- the audits ---------- */
+.audits{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 10px}
+.audits .au{font-family:var(--mono);font-size:9px;color:var(--faint);border:1px solid var(--hair);background:#fff;padding:2px 7px;white-space:nowrap}
+.audits .au.ok{color:var(--teal);border-color:var(--teal)}
+.audits .au b{color:var(--teal)}
+.audits .au.bad{color:var(--verm);border-color:var(--verm)}
+
 /* ---------- the desk's book ---------- */
 .book{border:2px solid var(--ink);background:#fff;padding:10px 14px 12px;margin-bottom:10px}
 .bhead{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}

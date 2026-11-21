@@ -75,7 +75,11 @@ export interface FoldResult {
   fit_n: number;
   test_n: number;
   median_abs_err_pct: number;
+  /** The same rows scored by a flat mcap/TVL multiple read off the fitting half. */
+  baseline_median_abs_err_pct: number;
   log_r2: number;
+  /** The flat multiple's log-space R² on the same rows — the honest space to compare the two. */
+  baseline_log_r2: number;
 }
 
 export interface OddsFit {
@@ -94,6 +98,8 @@ export interface ModelReport {
   /** Whether the leave-one-out comp term survived its own held-out test, and both variants' errors. */
   comp_term: { kept: boolean; errors_with: [number, number]; errors_without: [number, number] };
   odds: OddsFit;
+  /** The odds fit's own two folds: Brier against the base rate, share called right. */
+  odds_folds: OddsFold[];
   calibration: {
     multiplier: number;
     watchlist_median_raw: number;
@@ -101,7 +107,7 @@ export interface ModelReport {
     watchlist_above_floor: number;
     watchlist_size: number;
   };
-  counts: { scanned: number; no_token: number; tokened: number; board: number; early: number; live: number; fit_kept: number };
+  counts: { scanned: number; no_token: number; tokened: number; board: number; early: number; live: number; fit_kept: number; not_ranked: { tokened: number; no_tvl: number; derivative_or_exchange: number; banned_category: number; over_floor: number } };
 }
 
 export interface FarmStep {
@@ -400,19 +406,30 @@ function robustFit(sample: Array<{ p: SnapshotProtocol; f: Features }>, useComp:
 }
 
 /** A fit's held-out error on a sample it never saw: median absolute percent error and log-space R^2. */
-function testFit(fit: ValueFit, sample: Array<{ p: SnapshotProtocol; f: Features }>): FoldResult {
+function testFit(fit: ValueFit, sample: Array<{ p: SnapshotProtocol; f: Features }>, flatRatio: number): FoldResult {
   const errs = sample.map((s) => {
     const pred = launchValueOf(s.f, fit);
     const actual = s.p.mcap_usd as number;
     return Math.abs(pred - actual) / Math.max(1, actual);
   }).sort((a, b) => a - b);
   const med = errs[Math.floor(errs.length / 2)] ?? 1;
+  // The dumb model on the same rows: one flat mcap/TVL multiple, read off the fitting half.
+  const flatErrs = sample.map((s) => Math.abs(flatRatio * tvlOf(s.p) - (s.p.mcap_usd as number)) / Math.max(1, s.p.mcap_usd as number)).sort((a, b) => a - b);
+  const flatMed = flatErrs[Math.floor(flatErrs.length / 2)] ?? 1;
   const logs = sample.map((s) => Math.log(s.p.mcap_usd as number));
   const preds = sample.map((s) => Math.log(launchValueOf(s.f, fit)));
+  const flatPreds = sample.map((s) => Math.log(Math.max(1, flatRatio * tvlOf(s.p))));
   const meanLog = logs.reduce((a, b) => a + b, 0) / logs.length;
-  let ssTot = 0, ssRes = 0;
-  for (let i = 0; i < logs.length; i++) { ssTot += (logs[i]! - meanLog) ** 2; ssRes += (logs[i]! - preds[i]!) ** 2; }
-  return { fit_n: fit.n, test_n: sample.length, median_abs_err_pct: Math.round(med * 1000) / 10, log_r2: Math.round((1 - ssRes / Math.max(1e-9, ssTot)) * 1000) / 1000 };
+  let ssTot = 0, ssRes = 0, ssFlat = 0;
+  for (let i = 0; i < logs.length; i++) { ssTot += (logs[i]! - meanLog) ** 2; ssRes += (logs[i]! - preds[i]!) ** 2; ssFlat += (logs[i]! - flatPreds[i]!) ** 2; }
+  return {
+    fit_n: fit.n,
+    test_n: sample.length,
+    median_abs_err_pct: Math.round(med * 1000) / 10,
+    baseline_median_abs_err_pct: Math.round(flatMed * 1000) / 10,
+    log_r2: Math.round((1 - ssRes / Math.max(1e-9, ssTot)) * 1000) / 1000,
+    baseline_log_r2: Math.round((1 - ssFlat / Math.max(1e-9, ssTot)) * 1000) / 1000,
+  };
 }
 
 /** Logistic fit (deterministic gradient descent) of has-token on the figures plus the category rate. */
@@ -438,6 +455,33 @@ function fitOdds(rows: Array<{ p: SnapshotProtocol; f: Features; y: number }>): 
 export function oddsOf(f: Features, odds: OddsFit): number {
   const z = odds.w0 + odds.w_tvl * f.logTvl + odds.w_age * f.age01 + odds.w_mom * f.momentum01 + odds.w_cat * f.catRate;
   return Math.min(ODDS_CEIL, Math.max(ODDS_FLOOR, 1 / (1 + Math.exp(-z))));
+}
+
+/** One odds fold's honest scorecard: Brier against the base rate alone, and the share called right. */
+export interface OddsFold {
+  n: number;
+  brier: number;
+  brier_base: number;
+  share_right: number;
+  share_right_base: number;
+}
+
+function testOdds(fit: OddsFit, sample: Array<{ p: SnapshotProtocol; f: Features; y: number }>, baseRate: number): OddsFold {
+  let brier = 0, brierBase = 0, right = 0;
+  for (const r of sample) {
+    const p = oddsOf(r.f, fit);
+    brier += (p - r.y) ** 2;
+    brierBase += (baseRate - r.y) ** 2;
+    if ((p >= 0.5) === (r.y === 1)) right++;
+  }
+  const n = Math.max(1, sample.length);
+  return {
+    n: sample.length,
+    brier: Math.round((brier / n) * 1000) / 1000,
+    brier_base: Math.round((brierBase / n) * 1000) / 1000,
+    share_right: Math.round((right / n) * 1000) / 1000,
+    share_right_base: Math.round(baseRate * 1000) / 1000,
+  };
 }
 
 /* ---------------------- farm plans ---------------------- */
@@ -588,7 +632,16 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
   // The comp term is a candidate, not an assumption: fit both variants, keep the one whose
   // held-out errors are lower on average, and record both on the page.
   const variants = [false, true].map((useComp) => {
-    const folds: [FoldResult, FoldResult] = [testFit(robustFit(evens, useComp).fit, odds_), testFit(robustFit(odds_, useComp).fit, evens)];
+    const fitEvens = robustFit(evens, useComp);
+    const fitOdds = robustFit(odds_, useComp);
+    const ratioOf = (half, kept) => {
+      const keptHalf = half.filter((s) => kept.has(s.p.slug));
+      return median(keptHalf.map((s) => (s.p.mcap_usd as number) / tvlOf(s.p))) ?? 1;
+    };
+    const folds: [FoldResult, FoldResult] = [
+      testFit(fitEvens.fit, odds_, ratioOf(evens, new Set(fitEvens.keptSlugs))),
+      testFit(fitOdds.fit, evens, ratioOf(odds_, new Set(fitOdds.keptSlugs))),
+    ];
     return { useComp, folds, avg: (folds[0].median_abs_err_pct + folds[1].median_abs_err_pct) / 2 };
   });
   const chosen = variants[0].avg <= variants[1].avg ? variants[0] : variants[1];
@@ -612,6 +665,16 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
     .filter((p) => tvlOf(p) > 0)
     .map((p) => ({ p, f: featuresOf(p, snapshot.as_of, ctx, false), y: isPreToken(p) ? 0 : 1 }));
   const oddsFit = fitOdds(labelled);
+  // The odds fit scored the way the value fit is: fitted on one half, Brier-scored on the other,
+  // both ways, each against a constant base rate on the same rows.
+  const oddsEvens = labelled.filter((_, i) => i % 2 === 0);
+  const oddsOdds = labelled.filter((_, i) => i % 2 === 1);
+  const oddsFolds: OddsFold[] = [];
+  for (const [train, test] of [[oddsEvens, oddsOdds], [oddsOdds, oddsEvens]] as const) {
+    const foldFit = fitOdds(train);
+    const base = train.reduce((a, r) => a + r.y, 0) / Math.max(1, train.length);
+    oddsFolds.push(testOdds(foldFit, test, base));
+  }
 
   const watchlist = snapshot.watchlist
     .map((s) => snapshot.protocols.find((p) => p.slug === s))
@@ -634,6 +697,7 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
       errors_without: [variants[0].folds[0].median_abs_err_pct, variants[0].folds[1].median_abs_err_pct],
     },
     odds: { w0: round3(oddsFit.w0), w_tvl: round3(oddsFit.w_tvl), w_age: round3(oddsFit.w_age), w_mom: round3(oddsFit.w_mom), w_cat: round3(oddsFit.w_cat), n: oddsFit.n, base_rate: oddsFit.base_rate },
+    odds_folds: oddsFolds,
     calibration: {
       multiplier: Math.round(calib * 1000) / 1000,
       watchlist_median_raw: Math.round(watchlistMedian),
@@ -649,6 +713,19 @@ export function fitModel(snapshot: Snapshot): { report: ModelReport; launch: Val
       early: boardCount - watchlist.length,
       live: live.length,
       fit_kept: keptSlugs.size,
+      not_ranked: (() => {
+        const tally = { tokened: 0, no_tvl: 0, derivative_or_exchange: 0, banned_category: 0, over_floor: 0 };
+        const listed = new Set(snapshot.watchlist);
+        for (const p of snapshot.protocols) {
+          if (listed.has(p.slug) || isRankable(p) && tvlOf(p) < snapshot.floor_usd) continue;
+          if (!isPreToken(p)) tally.tokened++;
+          else if (tvlOf(p) <= 0) tally.no_tvl++;
+          else if (EXCHANGE_NAMES.test(p.name) || VERSIONED.test(p.name) || DERIVATIVE_WORDS.test(p.name)) tally.derivative_or_exchange++;
+          else if (BANNED_CATEGORIES.includes((p.category ?? '').toLowerCase())) tally.banned_category++;
+          else tally.over_floor++;
+        }
+        return tally;
+      })(),
     },
   };
   return { report, launch: fit, oddsFit, calib, ctx, keptSlugs, anchors };

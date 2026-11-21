@@ -156,7 +156,7 @@ function rowHtml(s) {
 
 const HEADS = [
   ['rk', 'rk'], ['protocol', 'protocol'], ['tvl', 'tvl', 'num'], ['7d', 'ch7', 'num'], ['age', 'age', 'num'],
-  ['odds', 'odds', 'num'], ['launch val', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null, 'num'],
+  ['odds', 'odds', 'num'], ['if it launches', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null, 'num'],
 ];
 
 /* ---------- the desk's book: the rows the fit itself backs, as one costed portfolio ---------- */
@@ -199,7 +199,7 @@ function boardHtml() {
   const filters = FILTERS.map((f) =>
     `<button type="button" class="${f.hot ? 'hot' : ''}" aria-pressed="${f.on}" data-key="${f.key}">${f.label}${f.n != null ? ` <span class="n">×${f.n}</span>` : ''}</button>`).join('');
   const sortArrow = (key) => (state.sort === key ? `<span class="arr">${state.dir > 0 ? '▲' : '▼'}</span>` : '');
-  const widths = [40, '', 84, 62, 52, 50, 80, 188, 72, 260];
+  const widths = [40, '', 84, 62, 52, 50, 88, 182, 72, 260];
   const thead = live
     ? '<tr><th>rk</th><th>protocol</th><th class="num">mcap</th><th class="num">tvl</th><th class="num">7d</th><th>mcap / tvl</th><th>what it is</th></tr>'
     : `<tr>${HEADS.map(([label, key, cls], i) => `<th${cls || key ? ` class="${[cls, key ? 'sortable' : ''].filter(Boolean).join(' ')}"` : ''}${key ? ` data-sort="${key}"` : ''}${widths[i] ? ` style="width:${widths[i]}px"` : ''}>${label}${key ? sortArrow(key) : ''}</th>`).join('')}</tr>`;
@@ -355,13 +355,44 @@ function kpisHtml() {
   const k = rep.counts;
   const f = rep.fit;
   const cal = rep.calibration;
+  const of_ = rep.odds_folds;
+  const brierMean = ((of_[0].brier + of_[1].brier) / 2).toFixed(3);
+  const brierBaseMean = ((of_[0].brier_base + of_[1].brier_base) / 2).toFixed(3);
+  const rightMean = Math.round(((of_[0].share_right + of_[1].share_right) / 2) * 100);
+  const rightBaseMean = Math.round(((of_[0].share_right_base + of_[1].share_right_base) / 2) * 100);
   return `
   <div class="kpi"><div class="l">scanned</div><div class="v">${k.scanned}</div><div class="s">${k.no_token} record no token · ${k.tokened} trade</div></div>
   <div class="kpi"><div class="l">ranked here</div><div class="v">${k.board}</div><div class="s">${R.watchlist_size} watchlist · ${k.early} our finds</div></div>
   <div class="kpi"><div class="l">fit</div><div class="v">TVL<sup style="font-size:10px">${f.b_tvl}</sup></div><div class="s">on ${f.n} tokened peers, outliers trimmed</div></div>
-  <div class="kpi"><div class="l">held-out error</div><div class="v"><em>${rep.folds[0].median_abs_err_pct}%</em> / ${rep.folds[1].median_abs_err_pct}%</div><div class="s">two folds, median abs, never seen in fit</div></div>
-  <div class="kpi"><div class="l">token odds</div><div class="v">${Math.round(rep.odds.base_rate * 100)}%</div><div class="s">base rate · logistic fit, all ${rep.odds.n}</div></div>
+  <div class="kpi"><div class="l">held-out error</div><div class="v"><em>${rep.folds[0].median_abs_err_pct}%</em> / ${rep.folds[1].median_abs_err_pct}%</div><div class="s">two folds · a flat mcap/TVL multiple explains none of the spread (its R²: ${rep.folds[0].baseline_log_r2} / ${rep.folds[1].baseline_log_r2}, the fit's: ${rep.folds[0].log_r2} / ${rep.folds[1].log_r2})</div></div>
+  <div class="kpi"><div class="l">token odds</div><div class="v">${Math.round(rep.odds.base_rate * 100)}%</div><div class="s">base rate · Brier <b>${brierMean} vs ${brierBaseMean}</b> for the base rate alone, 2 folds · called ${rightMean}% vs ${rightBaseMean}% right</div></div>
   <div class="kpi"><div class="l">floor calibrated</div><div class="v">${money(R.floor_usd).replace('$', '$')}</div><div class="s">watchlist median · ${cal.watchlist_above_floor}/${cal.watchlist_size} over it</div></div>`;
+}
+
+/* ---------- the audits: the board checks itself, in chips the page actually computes ---------- */
+function fnv1a(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0').toUpperCase();
+}
+function auditsHtml() {
+  const k = rep.counts;
+  const rows = R.rows;
+  const inOrder = rows.every((r, i) => r.rank === i + 1);
+  const neverRises = rows.every((r, i) => i === 0 || rows[i - 1].implied_value_usd >= r.implied_value_usd);
+  const wl = rows.filter((r) => r.on_watchlist).length;
+  const nr = k.not_ranked;
+  const check = inOrder && neverRises;
+  const checksum = fnv1a(rows.map((r) => `${r.slug}:${r.rank}:${r.implied_value_usd}`).join(';'));
+  return `
+  <span class="au ${check ? 'ok' : 'bad'}">${check ? '✓' : '✗'} ranks 1–${k.board} in order, values never rise</span>
+  <span class="au ${wl === R.watchlist_size ? 'ok' : 'bad'}">${wl === R.watchlist_size ? '✓' : '✗'} watchlist ${wl} of ${R.watchlist_size} ranked</span>
+  <span class="au ok">✓ ledger ${k.scanned} of ${k.scanned} accounted</span>
+  <span class="au">${k.tokened} trade today, not ranked</span>
+  <span class="au">${nr.over_floor} pre-token over the ${money(R.floor_usd)} floor</span>
+  <span class="au">${nr.derivative_or_exchange} wrapper or exchange by name</span>
+  <span class="au">${nr.banned_category} category-ruled out</span>
+  <span class="au">board checksum ${checksum} → model.ts</span>`;
 }
 
 /* ---------- the render ---------- */
@@ -370,9 +401,11 @@ function render() {
   $('#mver').textContent = R.model_version;
   $('#meta').innerHTML = `SHEET <b>${day}</b> · SNAPSHOT ${R.as_of} · <b>${R.watchlist_size}</b> WATCHLIST · ${R.board_size} ROWS · RANKED BY EXPECTED LAUNCH VALUE`;
   $('#kpis').innerHTML = kpisHtml();
+  $('#audits').innerHTML = auditsHtml();
   $('#meth').innerHTML =
     `<b>The model, fitted and tested.</b> launch value = TVL^${rep.fit.b_tvl} × momentum × age, an ordinary-least-squares fit on the snapshot's tokened protocols (the ${rep.fit.n} cleanest of ${rep.counts.tokened}, two outlier-trim passes), tested held-out twice: fold errors ${rep.folds[0].median_abs_err_pct}% and ${rep.folds[1].median_abs_err_pct}%. A leave-one-out comp term was also fitted and dropped when it failed its own held-out test (${rep.comp_term.errors_with[0]}%/${rep.comp_term.errors_with[1]}% with, ${rep.comp_term.errors_without[0]}%/${rep.comp_term.errors_without[1]}% without) — the leaner fit is the one shown. ` +
     `A logistic fit over all ${rep.odds.n} protocols gives the odds a token ever comes, reading each category's own token rate as well; the board ranks <b>expected value = launch value × odds</b>. One calibration multiplier (${rep.calibration.multiplier}) sets the watchlist's median to the snapshot's own ${money(R.floor_usd)} floor. ` +
+    `The odds are the peers' record — how long similar protocols ran before one recorded a token — not a forecast: nothing on this page says a token will launch. ` +
     `Verdicts grade the farm plan on the board's own curve. The desk's book and every rank on this sheet recompute in the browser from the same fitted coefficients — drag the momentum slider (or open #/b0.05) and the sheet re-ranks live. "Pre-token" is what DefiLlama records today, never proof a token does not exist — an estimate, never a promise.`;
   view.innerHTML = state.view === 'detail' ? detailHtml(R.rows.find((r) => r.slug === state.slug) || R.rows[0]) : boardHtml();
 

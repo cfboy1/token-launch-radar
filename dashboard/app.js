@@ -150,13 +150,13 @@ function rowHtml(s) {
     <td class="num">${money(r.launch_value_usd)}</td>
     <td><span class="iv">${money(s.exp)}</span>${signal(s.exp)}<span class="mult">×${(s.exp / r.tvl_usd).toFixed(2)}</span></td>
     <td>${vdChip(s.label)}</td>
-    <td class="fm">${farmCell(r)}</td>
+    <td class="num fm">${farmCell(r)}</td>
   </tr>`;
 }
 
 const HEADS = [
   ['rk', 'rk'], ['protocol', 'protocol'], ['tvl', 'tvl', 'num'], ['7d', 'ch7', 'num'], ['age', 'age', 'num'],
-  ['odds', 'odds', 'num'], ['if it launches', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null],
+  ['odds', 'odds', 'num'], ['if it launches', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null, 'num'],
 ];
 
 /* ---------- the desk's book: the rows the fit itself backs, as one costed portfolio ---------- */
@@ -207,12 +207,12 @@ function boardHtml() {
     ? R.live.map((p, i) => `<tr><td class="rk">${String(i + 1).padStart(2, '0')}</td><td><span class="nm">${esc(p.name)}</span><span class="ct">${esc((p.category || '—').toLowerCase())}</span></td><td class="num">${money(p.mcap_usd)}</td><td class="num">${money(p.tvl_usd)}</td><td class="num">${dirPct(p.change_7d)}</td><td><span class="iv">×${p.mc_tvl.toFixed(2)}</span>${signal(p.mc_tvl * 1e9)}</td><td class="fm">trades today — the market's own value, never the model's</td></tr>`).join('')
     : rows.map(rowHtml).join('');
   return `
+  ${bookHtml(scored)}
+  ${stressHtml()}
+  ${leader && !live ? leadHtml(leader) : '<div class="lead" style="display:none"></div>'}
   <div class="filters" role="group" aria-label="filters" style="grid-template-columns:repeat(${FILTERS.length},1fr)">${filters}</div>
   <table aria-label="the board">${thead}<tbody>${body}</tbody></table>
-  <p class="count">${live ? `the fit's anchors — ${R.live_size} of the ${rep.counts.fit_kept} tokened records it was fitted on, largest first · the board itself ranks only the pre-token ${R.board_size}.` : `${rows.length} of ${R.board_size} rows shown · every watchlist slug is on the board · ranks 1–${R.board_size} by expected launch value`}</p>
-  ${leader && !live ? leadHtml(leader) : '<div class="lead" style="display:none"></div>'}
-  ${bookHtml(scored)}
-  ${stressHtml()}`;
+  <p class="count">${live ? `the fit's anchors — ${R.live_size} of the ${rep.counts.fit_kept} tokened records it was fitted on, largest first · the board itself ranks only the pre-token ${R.board_size}.` : `${rows.length} of ${R.board_size} rows shown · every watchlist slug is on the board · ranks 1–${R.board_size} by expected launch value`}</p>`;
 }
 
 function leadHtml(s) {

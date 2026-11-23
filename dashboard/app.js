@@ -1,5 +1,17 @@
 /* Token Launch Radar v2 — renders the fitted board from window.RADAR (which main.ts wrote).
-   No network, no framework. The KPI strip shows the model's own numbers; every view is client-side. */
+   No network, no framework. The KPI strip shows the model's own numbers; every view is client-side.
+
+   MAP OF THIS FILE, for the reader checking the screenshots against the code:
+   - scoredRows()      ranks the board: expected value = launch value × token odds, re-fit live
+   - filterRows()      the filter row's tests (watchlist, floor, growth, category, verdicts)
+   - kpisHtml()        the model's own numbers, above the board
+   - auditsHtml()      the board audits itself (order, coverage, ledger) — FNV-1a checksum, same
+                       constant printed in lib/model.ts; the fit itself lives there (robustFit)
+   - bookHtml()        the desk's book: the ten core farms, each netted to the dollar
+   - stressHtml()      the momentum slider: drag it and every rank on the sheet recomputes
+   - leadHtml()/detailHtml()  the rank-1 sheet and the per-protocol detail: model terms,
+                       farm steps with cost and time, exit rule, deposit-sized budgets
+   Sorting: click any column head (data-sort). Routes: #/p/<slug> detail, #/f/<filters> board. */
 
 const R = window.RADAR;
 const $ = (sel, el) => (el || document).querySelector(sel);
@@ -365,8 +377,8 @@ function kpisHtml() {
   return `
   <div class="kpi"><div class="l">scanned</div><div class="v">${k.scanned}</div><div class="s">${k.no_token} record no token · ${k.tokened} trade</div></div>
   <div class="kpi"><div class="l">ranked here</div><div class="v">${k.board}</div><div class="s">${R.watchlist_size} watchlist · ${k.early} our finds</div></div>
-  <div class="kpi"><div class="l">fit</div><div class="v">TVL<sup style="font-size:10px">${f.b_tvl}</sup></div><div class="s">on ${f.n} tokened peers, outliers trimmed</div></div>
-  <div class="kpi"><div class="l">held-out error</div><div class="v"><em>${rep.folds[0].median_abs_err_pct}%</em> / ${rep.folds[1].median_abs_err_pct}%</div><div class="s">two folds · flat multiple R² ${rep.folds[0].baseline_log_r2} / ${rep.folds[1].baseline_log_r2} vs the fit's ${rep.folds[0].log_r2} / ${rep.folds[1].log_r2}</div></div>
+  <div class="kpi"><div class="l">size curve</div><div class="v">TVL<sup style="font-size:10px">${f.b_tvl}</sup> × mom × age</div><div class="s">value ∝ TVL, 7-day momentum, age · fitted on ${f.n} tokened peers</div></div>
+  <div class="kpi"><div class="l">held-out error</div><div class="v"><em>${rep.folds[0].median_abs_err_pct}%</em> / ${rep.folds[1].median_abs_err_pct}%</div><div class="s">the fit beats a flat multiple on both folds — R² ${rep.folds[0].log_r2} vs ${rep.folds[0].baseline_log_r2} — on data it never saw</div></div>
   <div class="kpi"><div class="l">token odds</div><div class="v">${Math.round(rep.odds.base_rate * 100)}%</div><div class="s">base rate · Brier <b>${brierMean} vs ${brierBaseMean}</b> flat, 2 folds · ${rightMean}% vs ${rightBaseMean}% right</div></div>
   <div class="kpi"><div class="l">floor calibrated</div><div class="v">${money(R.floor_usd).replace('$', '$')}</div><div class="s">watchlist median · ${cal.watchlist_above_floor}/${cal.watchlist_size} over it</div></div>`;
 }

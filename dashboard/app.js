@@ -150,13 +150,13 @@ function rowHtml(s) {
     <td class="num">${money(r.launch_value_usd)}</td>
     <td><span class="iv">${money(s.exp)}</span>${signal(s.exp)}<span class="mult">×${(s.exp / r.tvl_usd).toFixed(2)}</span></td>
     <td>${vdChip(s.label)}</td>
-    <td class="num fm">${farmCell(r)}</td>
+    <td class="fm">${farmCell(r)}</td>
   </tr>`;
 }
 
 const HEADS = [
   ['rk', 'rk'], ['protocol', 'protocol'], ['tvl', 'tvl', 'num'], ['7d', 'ch7', 'num'], ['age', 'age', 'num'],
-  ['odds', 'odds', 'num'], ['if it launches', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null, 'num'],
+  ['odds', 'odds', 'num'], ['if it launches', 'launch', 'num'], ['expected value', 'implied'], ['verdict', null], ['farm', null],
 ];
 
 /* ---------- the desk's book: the rows the fit itself backs, as one costed portfolio ---------- */
@@ -207,12 +207,12 @@ function boardHtml() {
     ? R.live.map((p, i) => `<tr><td class="rk">${String(i + 1).padStart(2, '0')}</td><td><span class="nm">${esc(p.name)}</span><span class="ct">${esc((p.category || '—').toLowerCase())}</span></td><td class="num">${money(p.mcap_usd)}</td><td class="num">${money(p.tvl_usd)}</td><td class="num">${dirPct(p.change_7d)}</td><td><span class="iv">×${p.mc_tvl.toFixed(2)}</span>${signal(p.mc_tvl * 1e9)}</td><td class="fm">trades today — the market's own value, never the model's</td></tr>`).join('')
     : rows.map(rowHtml).join('');
   return `
-  ${bookHtml(scored)}
-  ${stressHtml()}
-  ${leader && !live ? leadHtml(leader) : '<div class="lead" style="display:none"></div>'}
   <div class="filters" role="group" aria-label="filters" style="grid-template-columns:repeat(${FILTERS.length},1fr)">${filters}</div>
   <table aria-label="the board">${thead}<tbody>${body}</tbody></table>
-  <p class="count">${live ? `the fit's anchors — ${R.live_size} of the ${rep.counts.fit_kept} tokened records it was fitted on, largest first · the board itself ranks only the pre-token ${R.board_size}.` : `${rows.length} of ${R.board_size} rows shown · every watchlist slug is on the board · ranks 1–${R.board_size} by expected launch value`}</p>`;
+  <p class="count">${live ? `the fit's anchors — ${R.live_size} of the ${rep.counts.fit_kept} tokened records it was fitted on, largest first · the board itself ranks only the pre-token ${R.board_size}.` : `${rows.length} of ${R.board_size} rows shown · every watchlist slug is on the board · ranks 1–${R.board_size} by expected launch value`}</p>
+  ${leader && !live ? leadHtml(leader) : '<div class="lead" style="display:none"></div>'}
+  ${bookHtml(scored)}
+  ${stressHtml()}`;
 }
 
 function leadHtml(s) {
@@ -365,8 +365,8 @@ function kpisHtml() {
   <div class="kpi"><div class="l">scanned</div><div class="v">${k.scanned}</div><div class="s">${k.no_token} record no token · ${k.tokened} trade</div></div>
   <div class="kpi"><div class="l">ranked here</div><div class="v">${k.board}</div><div class="s">${R.watchlist_size} watchlist · ${k.early} our finds</div></div>
   <div class="kpi"><div class="l">fit</div><div class="v">TVL<sup style="font-size:10px">${f.b_tvl}</sup></div><div class="s">on ${f.n} tokened peers, outliers trimmed</div></div>
-  <div class="kpi"><div class="l">held-out error</div><div class="v"><em>${rep.folds[0].median_abs_err_pct}%</em> / ${rep.folds[1].median_abs_err_pct}%</div><div class="s">two folds · a flat mcap/TVL multiple explains none of the spread (its R²: ${rep.folds[0].baseline_log_r2} / ${rep.folds[1].baseline_log_r2}, the fit's: ${rep.folds[0].log_r2} / ${rep.folds[1].log_r2})</div></div>
-  <div class="kpi"><div class="l">token odds</div><div class="v">${Math.round(rep.odds.base_rate * 100)}%</div><div class="s">base rate · Brier <b>${brierMean} vs ${brierBaseMean}</b> for the base rate alone, 2 folds · called ${rightMean}% vs ${rightBaseMean}% right</div></div>
+  <div class="kpi"><div class="l">held-out error</div><div class="v"><em>${rep.folds[0].median_abs_err_pct}%</em> / ${rep.folds[1].median_abs_err_pct}%</div><div class="s">two folds · flat multiple R² ${rep.folds[0].baseline_log_r2} / ${rep.folds[1].baseline_log_r2} vs the fit's ${rep.folds[0].log_r2} / ${rep.folds[1].log_r2}</div></div>
+  <div class="kpi"><div class="l">token odds</div><div class="v">${Math.round(rep.odds.base_rate * 100)}%</div><div class="s">base rate · Brier <b>${brierMean} vs ${brierBaseMean}</b> flat, 2 folds · ${rightMean}% vs ${rightBaseMean}% right</div></div>
   <div class="kpi"><div class="l">floor calibrated</div><div class="v">${money(R.floor_usd).replace('$', '$')}</div><div class="s">watchlist median · ${cal.watchlist_above_floor}/${cal.watchlist_size} over it</div></div>`;
 }
 
@@ -389,11 +389,11 @@ function auditsHtml() {
   <span class="au ${check ? 'ok' : 'bad'}">${check ? '✓' : '✗'} ranks 1–${k.board} in order, values never rise</span>
   <span class="au ${wl === R.watchlist_size ? 'ok' : 'bad'}">${wl === R.watchlist_size ? '✓' : '✗'} watchlist ${wl} of ${R.watchlist_size} ranked</span>
   <span class="au ok">✓ ledger ${k.scanned} of ${k.scanned} accounted</span>
-  <span class="au">${k.tokened} trade today, not ranked</span>
+  <span class="au">${k.tokened} trade, unranked</span>
   <span class="au">${nr.over_floor} pre-token over the ${money(R.floor_usd)} floor</span>
-  <span class="au">${nr.derivative_or_exchange} wrapper or exchange by name</span>
+  <span class="au">${nr.derivative_or_exchange} wrappers or exchanges</span>
   <span class="au">${nr.banned_category} category-ruled out</span>
-  <span class="au">board checksum ${checksum} → model.ts</span>`;
+  <span class="au">checksum ${checksum} → model.ts</span>`;
 }
 
 /* ---------- the render ---------- */

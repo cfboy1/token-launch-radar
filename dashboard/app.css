@@ -22,6 +22,9 @@ button{font:inherit;cursor:pointer}
 h1{font-size:26px;font-weight:800;letter-spacing:-.03em;line-height:1.05}
 .no{font-family:var(--mono);font-size:11px;color:var(--faint);text-align:right;white-space:normal;line-height:1.8;min-width:0;overflow-wrap:break-word}
 .no b{color:var(--verm)}
+.states{font-size:11px;color:var(--faint);margin-top:4px}
+.reading{font-family:var(--mono);font-size:9px;color:var(--faint);margin:-3px 0 10px}
+.reading b{color:var(--ink);font-weight:600}
 
 /* ---------- KPI strip: the model's own numbers ---------- */
 .kpis{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid var(--ink);border-top:0;background:#fff}

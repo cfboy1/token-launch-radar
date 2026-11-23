@@ -160,6 +160,7 @@ const HEADS = [
 ];
 
 /* ---------- the desk's book: the rows the fit itself backs, as one costed portfolio ---------- */
+const multTxt = (x) => (x >= 1e6 ? '×' + (x / 1e6).toFixed(1) + 'M' : x >= 1e3 ? '×' + Math.round(x / 1e3) + 'K' : '×' + Math.round(x));
 function bookHtml(scored) {
   const core = scored
     .filter((s) => s.label === 'core')
@@ -174,10 +175,10 @@ function bookHtml(scored) {
   return `<section class="book" aria-label="the desk's book">
     <div class="bhead">
       <span class="btitle">THE DESK'S BOOK</span>
-      <span class="bsub">the ${core.length} core farms the fit itself backs, cheapest expected dollar first — deploy about <b>${money(cost)}</b> all-in, against <b>${money(exp)}</b> of combined expected value · median odds ${medOdds}%</span>
+      <span class="bsub">the ${core.length} core farms the fit itself backs, cheapest expected dollar first — deploy about <b>${money(cost)}</b> all-in → <b>${money(exp)}</b> of combined expected value if the odds pay · median odds ${medOdds}%</span>
       ${shocked ? `<span class="bshock">re-ranked live at β = ${state.bMom.toFixed(2)}</span>` : ''}
     </div>
-    <div class="brow">${core.map((s, i) => `<a class="bk" href="#/p/${encodeURIComponent(s.r.slug)}"><span class="bi">${String(i + 1).padStart(2, '0')}</span><span class="bn">${esc(s.r.name.toLowerCase())}</span><span class="bm"><b>${money(s.exp)}</b> · <span class="o">${Math.round(s.r.token_odds * 100)}%</span> · <span class="c">$${s.r.verdict.cost_usd}</span></span></a>`).join('')}</div>
+    <div class="brow">${core.map((s, i) => `<a class="bk" href="#/p/${encodeURIComponent(s.r.slug)}"><span class="bi">${String(i + 1).padStart(2, '0')}</span><span class="bn">${esc(s.r.name.toLowerCase())}</span><span class="bm"><b>${money(s.exp)}</b> · <span class="o">${Math.round(s.r.token_odds * 100)}%</span> · <span class="c">$${s.r.verdict.cost_usd} in → ${multTxt(s.exp / s.r.verdict.cost_usd)}</span></span></a>`).join('')}</div>
   </section>`;
 }
 
